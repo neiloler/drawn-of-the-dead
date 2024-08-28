@@ -1,4 +1,5 @@
 import React, { useRef, useState, useEffect } from 'react'
+import { getBoundingBox } from './shapeUtils' // Importing the utility function
 
 const CanvasDraw = () => {
   const canvasRef = useRef(null)
@@ -7,6 +8,9 @@ const CanvasDraw = () => {
   const [lines, setLines] = useState([]) // Stores all drawn lines
   const [currentLine, setCurrentLine] = useState([]) // Points of the line currently being drawn
   const [selectedLineIndex, setSelectedLineIndex] = useState(null) // Index of the selected line
+  const [isDragMode, setIsDragMode] = useState(false) // Toggle drag mode
+  const [draggingLineIndex, setDraggingLineIndex] = useState(null) // Index of the line being dragged
+  const [dragStartPoint, setDragStartPoint] = useState({ x: 0, y: 0 }) // Start point of the drag operation
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -23,13 +27,6 @@ const CanvasDraw = () => {
     contextRef.current = ctx
   }, [])
 
-  // This useEffect triggers when the selectedLineIndex changes
-  useEffect(() => {
-    if (selectedLineIndex !== null || lines.length > 0) {
-      redrawCanvas() // Redraw canvas to show the highlighted line
-    }
-  }, [selectedLineIndex, lines])
-
   const drawLine = (line) => {
     if (line.length < 2) return
 
@@ -41,6 +38,22 @@ const CanvasDraw = () => {
     })
     ctx.stroke()
     ctx.closePath()
+  }
+
+  const drawBoundingBox = (line) => {
+    if (line.length < 2) return
+
+    const ctx = contextRef.current
+    const padding = 5 // Define padding here or pass it to getBoundingBox
+    const { minX, minY, maxX, maxY } = getBoundingBox(line, padding)
+
+    // Configure the context for drawing the bounding box
+    ctx.save()
+    ctx.setLineDash([5, 3]) // Set dashed line style
+    ctx.strokeStyle = 'red' // Red for highlight
+    ctx.lineWidth = 1 // Thinner line for highlight
+    ctx.strokeRect(minX, minY, maxX - minX, maxY - minY)
+    ctx.restore()
   }
 
   const redrawCanvas = () => {
@@ -55,56 +68,84 @@ const CanvasDraw = () => {
       drawLine(line)
     })
 
-    // Highlight the selected line if one is selected
-    if (selectedLineIndex !== null) {
-      highlightLine(lines[selectedLineIndex])
+    // Highlight the selected line if one is selected and drag mode is active
+    if (isDragMode && selectedLineIndex !== null) {
+      drawBoundingBox(lines[selectedLineIndex])
     }
   }
 
-  const highlightLine = (line) => {
-    if (line.length < 2) return
-
-    const ctx = contextRef.current
-    const padding = 5
-
-    // Determine the bounding box of the line
-    let minX = Math.min(...line.map((p) => p.x)) - padding
-    let minY = Math.min(...line.map((p) => p.y)) - padding
-    let maxX = Math.max(...line.map((p) => p.x)) + padding
-    let maxY = Math.max(...line.map((p) => p.y)) + padding
-
-    // Configure the context for highlighting
-    ctx.save()
-    ctx.setLineDash([5, 3]) // Set dashed line style
-    ctx.strokeStyle = 'red' // Red for highlight
-    ctx.lineWidth = 1 // Thinner line for highlight
-    ctx.strokeRect(minX, minY, maxX - minX, maxY - minY)
-    ctx.restore()
-  }
-
-  const startDrawing = (e) => {
-    setIsDrawing(true)
+  const startDrawingOrDragging = (e) => {
     const point = { x: e.nativeEvent.offsetX, y: e.nativeEvent.offsetY }
-    setCurrentLine([point]) // Start a new line with the first point
+
+    if (isDragMode) {
+      // Check if the click is inside any line's bounding box
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i]
+        const padding = 0 // No padding required for detecting clicks
+        const { minX, minY, maxX, maxY } = getBoundingBox(line, padding)
+
+        if (
+          point.x >= minX &&
+          point.x <= maxX &&
+          point.y >= minY &&
+          point.y <= maxY
+        ) {
+          // Start dragging this line
+          setDraggingLineIndex(i)
+          setDragStartPoint(point) // Record the start point of the drag
+          setSelectedLineIndex(i) // Set this line as selected
+          return
+        }
+      }
+    } else {
+      // Start drawing a new line
+      setIsDrawing(true)
+      setCurrentLine([point])
+    }
   }
 
-  const draw = (e) => {
-    if (!isDrawing) return
-
+  const dragOrDraw = (e) => {
     const point = { x: e.nativeEvent.offsetX, y: e.nativeEvent.offsetY }
-    setCurrentLine((prevLine) => [...prevLine, point])
 
-    // Redraw everything to show the current line in progress
-    redrawCanvas()
-    drawLine([...currentLine, point])
+    if (isDragMode && draggingLineIndex !== null) {
+      // Calculate the difference between the current and starting positions
+      const deltaX = point.x - dragStartPoint.x
+      const deltaY = point.y - dragStartPoint.y
+
+      // Update the actual line position directly in the lines array
+      setLines((prevLines) =>
+        prevLines.map((line, index) => {
+          if (index === draggingLineIndex) {
+            return line.map((p) => ({ x: p.x + deltaX, y: p.y + deltaY }))
+          }
+          return line
+        })
+      )
+
+      // Update the start point to the current point for smooth dragging
+      setDragStartPoint(point)
+
+      redrawCanvas() // Redraw the canvas with the updated line position
+
+      // Draw the bounding box around the line being dragged
+      drawBoundingBox(lines[draggingLineIndex])
+    } else if (isDrawing) {
+      setCurrentLine((prevLine) => [...prevLine, point])
+      redrawCanvas()
+      drawLine([...currentLine, point])
+    }
   }
 
-  const stopDrawing = () => {
-    if (!isDrawing) return
-
-    setIsDrawing(false)
-    setLines((prevLines) => [...prevLines, currentLine]) // Save the completed line
-    setCurrentLine([]) // Reset the current line
+  const stopDrawingOrDragging = () => {
+    if (isDragMode && draggingLineIndex !== null) {
+      // Finalize the drag and reset dragging state
+      setDraggingLineIndex(null)
+    } else if (isDrawing) {
+      // Stop drawing and save the line
+      setIsDrawing(false)
+      setLines((prevLines) => [...prevLines, currentLine])
+      setCurrentLine([])
+    }
   }
 
   const handleLineSelection = (e) => {
@@ -112,37 +153,21 @@ const CanvasDraw = () => {
     setSelectedLineIndex(index) // Update the selected line index
   }
 
-  const copyShapeToClipboard = (line) => {
-    // Convert the line object to a JSON string
-    const lineString = JSON.stringify(line)
+  // Handle changes to the drag mode checkbox
+  const handleDragModeChange = (e) => {
+    const enabled = e.target.checked
+    setIsDragMode(enabled)
 
-    // Copy the JSON string to the clipboard
-    navigator.clipboard
-      .writeText(lineString)
-      .then(() => {
-        console.log('Shape copied to clipboard')
-      })
-      .catch((err) => {
-        console.error('Failed to copy shape to clipboard', err)
-      })
-  }
-
-  const pasteShapeFromClipboard = async () => {
-    try {
-      // Read the text from the clipboard
-      const lineString = await navigator.clipboard.readText()
-
-      // Parse the JSON string back into an object
-      const line = JSON.parse(lineString)
-
-      // Return the line object
-      console.log('Shape pasted from clipboard:', line)
-      return line
-    } catch (err) {
-      console.error('Failed to paste shape from clipboard', err)
-      return null
+    if (!enabled) {
+      // Clear the selection when drag mode is turned off
+      setSelectedLineIndex(null)
     }
   }
+
+  // This useEffect triggers when the selectedLineIndex changes
+  useEffect(() => {
+    redrawCanvas() // Redraw canvas to show the highlighted line
+  }, [selectedLineIndex, isDragMode])
 
   return (
     <div className="canvas-draw-container">
@@ -150,27 +175,22 @@ const CanvasDraw = () => {
         ref={canvasRef}
         style={{
           border: '1px solid black',
-          cursor: 'crosshair',
+          cursor: isDragMode ? 'move' : 'crosshair',
         }}
-        onMouseDown={startDrawing}
-        onMouseMove={draw}
-        onMouseUp={stopDrawing}
-        onMouseLeave={stopDrawing}
+        onMouseDown={startDrawingOrDragging}
+        onMouseMove={dragOrDraw}
+        onMouseUp={stopDrawingOrDragging}
+        onMouseLeave={stopDrawingOrDragging}
       />
       <div className="controls">
-        <select
-          onChange={handleLineSelection}
-          value={selectedLineIndex !== null ? selectedLineIndex : ''}
-        >
-          <option value="" disabled>
-            Select a line to highlight
-          </option>
-          {lines.map((_, index) => (
-            <option key={index} value={index}>
-              Line {index + 1}
-            </option>
-          ))}
-        </select>
+        <label>
+          <input
+            type="checkbox"
+            checked={isDragMode}
+            onChange={handleDragModeChange}
+          />
+          Enable Drag Mode
+        </label>
         <button onClick={() => copyShapeToClipboard(lines[selectedLineIndex])}>
           Copy Shape
         </button>
@@ -184,6 +204,19 @@ const CanvasDraw = () => {
         >
           Paste Shape
         </button>
+        <select
+          onChange={handleLineSelection}
+          value={selectedLineIndex !== null ? selectedLineIndex : ''}
+        >
+          <option value="" disabled>
+            Select a line to highlight
+          </option>
+          {lines.map((_, index) => (
+            <option key={index} value={index}>
+              Line {index + 1}
+            </option>
+          ))}
+        </select>
       </div>
     </div>
   )
