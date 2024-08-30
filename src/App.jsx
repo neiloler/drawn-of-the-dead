@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import CanvasDraw from './CanvasDraw'
 import { Toolbar } from './Toolbar'
+import { STATE_ENUM } from './drawingUtils'
 
 function App() {
   const [toolState, setToolState] = useState(STATE_ENUM.draw)

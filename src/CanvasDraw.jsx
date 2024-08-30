@@ -1,14 +1,13 @@
 import React, { useRef, useState, useEffect } from 'react'
-import { getBoundingBox } from './shapeUtils' // Importing the utility function
+import { copyShapeToClipboard, getBoundingBox, pasteShapeFromClipboard, STATE_ENUM } from './drawingUtils' // Importing the utility function
 
-const CanvasDraw = () => {
+const CanvasDraw = ({ toolState }) => {
   const canvasRef = useRef(null)
   const contextRef = useRef(null)
   const [isDrawing, setIsDrawing] = useState(false)
   const [lines, setLines] = useState([]) // Stores all drawn lines
   const [currentLine, setCurrentLine] = useState([]) // Points of the line currently being drawn
   const [selectedLineIndex, setSelectedLineIndex] = useState(null) // Index of the selected line
-  const [isDragMode, setIsDragMode] = useState(false) // Toggle drag mode
   const [draggingLineIndex, setDraggingLineIndex] = useState(null) // Index of the line being dragged
   const [dragStartPoint, setDragStartPoint] = useState({ x: 0, y: 0 }) // Start point of the drag operation
 
@@ -26,6 +25,17 @@ const CanvasDraw = () => {
     // Save the context reference
     contextRef.current = ctx
   }, [])
+
+  useEffect(() => {
+    redrawCanvas() // Redraw canvas to show the highlighted line
+  }, [selectedLineIndex, lines])
+
+  useEffect(() => {
+    if (toolState === STATE_ENUM.move) {
+      // Clear the selection when drag mode is turned off
+      setSelectedLineIndex(null)
+    }
+  }, [toolState])
 
   const drawLine = (line) => {
     if (line.length < 2) return
@@ -69,7 +79,7 @@ const CanvasDraw = () => {
     })
 
     // Highlight the selected line if one is selected and drag mode is active
-    if (isDragMode && selectedLineIndex !== null) {
+    if (selectedLineIndex !== null) {
       drawBoundingBox(lines[selectedLineIndex])
     }
   }
@@ -77,7 +87,7 @@ const CanvasDraw = () => {
   const startDrawingOrDragging = (e) => {
     const point = { x: e.nativeEvent.offsetX, y: e.nativeEvent.offsetY }
 
-    if (isDragMode) {
+    if (toolState === STATE_ENUM.move) {
       // Check if the click is inside any line's bounding box
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i]
@@ -107,7 +117,7 @@ const CanvasDraw = () => {
   const dragOrDraw = (e) => {
     const point = { x: e.nativeEvent.offsetX, y: e.nativeEvent.offsetY }
 
-    if (isDragMode && draggingLineIndex !== null) {
+    if (toolState === STATE_ENUM.move && draggingLineIndex !== null) {
       // Calculate the difference between the current and starting positions
       const deltaX = point.x - dragStartPoint.x
       const deltaY = point.y - dragStartPoint.y
@@ -137,7 +147,7 @@ const CanvasDraw = () => {
   }
 
   const stopDrawingOrDragging = () => {
-    if (isDragMode && draggingLineIndex !== null) {
+    if (toolState === STATE_ENUM.move && draggingLineIndex !== null) {
       // Finalize the drag and reset dragging state
       setDraggingLineIndex(null)
     } else if (isDrawing) {
@@ -153,29 +163,13 @@ const CanvasDraw = () => {
     setSelectedLineIndex(index) // Update the selected line index
   }
 
-  // Handle changes to the drag mode checkbox
-  const handleDragModeChange = (e) => {
-    const enabled = e.target.checked
-    setIsDragMode(enabled)
-
-    if (!enabled) {
-      // Clear the selection when drag mode is turned off
-      setSelectedLineIndex(null)
-    }
-  }
-
-  // This useEffect triggers when the selectedLineIndex changes
-  useEffect(() => {
-    redrawCanvas() // Redraw canvas to show the highlighted line
-  }, [selectedLineIndex, isDragMode])
-
   return (
     <div className="canvas-draw-container">
       <canvas
         ref={canvasRef}
         style={{
           border: '1px solid black',
-          cursor: isDragMode ? 'move' : 'crosshair',
+          cursor: toolState === STATE_ENUM.move ? 'move' : 'crosshair',
         }}
         onMouseDown={startDrawingOrDragging}
         onMouseMove={dragOrDraw}
@@ -183,14 +177,6 @@ const CanvasDraw = () => {
         onMouseLeave={stopDrawingOrDragging}
       />
       <div className="controls">
-        <label>
-          <input
-            type="checkbox"
-            checked={isDragMode}
-            onChange={handleDragModeChange}
-          />
-          Enable Drag Mode
-        </label>
         <button onClick={() => copyShapeToClipboard(lines[selectedLineIndex])}>
           Copy Shape
         </button>
