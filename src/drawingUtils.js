@@ -1,3 +1,8 @@
+export const STATE_ENUM = {
+  draw: 'draw',
+  move: 'move'
+}
+
 export const getBoundingBox = (line, padding) => {
   let minX = Math.min(...line.map((p) => p.x)) - padding
   let minY = Math.min(...line.map((p) => p.y)) - padding
